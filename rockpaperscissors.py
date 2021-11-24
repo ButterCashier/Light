@@ -6,6 +6,9 @@ print("Rock, Paper, Scissors!")
 fail = 0
 vic = 0
 
+def loop(player,rounds,vic,fail):
+    turn(player,rounds,vic,fail)
+
 def win(choice,cpu,rounds,vic,fail):
     print("You WIN! You chose", choice, "and CPU chose", cpu)
     vic+= 1
@@ -57,7 +60,8 @@ def turn(player,rounds,vic,fail):
                 lose(choice,cpu,rounds,vic,fail)
 
         else:
-            choice = input("Enter 'rock', 'paper' or 'scissors'! ")
+            print("Enter 'rock', 'paper' or 'scissors'! ")
+            loop(player,rounds,vic,fail)
   
     print("FINAL POINTS:\n",player,":", vic, "\nCPU:", fail)
     if vic > fail:
