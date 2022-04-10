@@ -62,7 +62,7 @@ class Ray:
             return collidePos
 
 class Wall:
-    def __init__(self, start_pos, end_pos, color='green'):
+    def __init__(self, start_pos, end_pos, color='red'):
         self.start_pos = start_pos
         self.end_pos = end_pos
         self.color = color
