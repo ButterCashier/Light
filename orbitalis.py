@@ -8,9 +8,9 @@ import random
 pygame.init()
 
 # -----Options-----
-WINDOW_SIZE = (1200, 800)  # Width x Height in pixels
-NUM_RAYS = 100  # Must be between 1 and 360
-SOLID_RAYS = False  # Can be somewhat glitchy. For best results, set NUM_RAYS to 360
+WINDOW_SIZE = (1200, 800)  #Width x Height in pixels
+NUM_RAYS = 100  #Must be between 1 and 360
+SOLID_RAYS = False
 NUM_WALLS = 4  # The amount of randomly generated walls
 # ------------------
 
@@ -23,7 +23,6 @@ running = True
 rays = []
 walls = []
 particles = []
-
 
 class Ray:
     def __init__(self, x, y, angle):
@@ -62,7 +61,6 @@ class Ray:
             collidePos = [x, y]
             return collidePos
 
-
 class Wall:
     def __init__(self, start_pos, end_pos, color='green'):
         self.start_pos = start_pos
@@ -79,10 +77,8 @@ class Wall:
     def draw(self):
         pygame.draw.line(display, self.color, self.start_pos, self.end_pos, 3)
 
-
 for i in range(0, 360, int(360 / NUM_RAYS)):
     rays.append(Ray(mx, my, math.radians(i)))
-
 
 def drawRays(rays, walls, color='blue'):
     global lastClosestPoint
@@ -107,7 +103,6 @@ def drawRays(rays, walls, color='blue'):
                 pygame.draw.polygon(display, color, [(mx, my), closestPoint, lastClosestPoint])
                 lastClosestPoint = closestPoint
 
-
 def generateWalls():
     del walls[:]
 
@@ -123,7 +118,6 @@ def generateWalls():
         end_y = random.randint(0, WINDOW_SIZE[1])
         walls.append(Wall((start_x, start_y), (end_x, end_y)))
 
-
 def draw():
     display.fill((0, 0, 0))
 
@@ -134,11 +128,8 @@ def draw():
         particle.draw()
 
     drawRays([ray for ray in rays], [wall for wall in walls])
-
     screen.blit(display, (0, 0))
-
     pygame.display.update()
-
 
 generateWalls()
 while running:
