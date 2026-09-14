@@ -1,0 +1,2698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0,
+               maximum-scale=1.0, user-scalable=no">
+
+<title>Plane Problems</title>
+
+<style>
+* {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+}
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #071522;
+    font-family: Arial, sans-serif;
+}
+
+#game {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at center,
+        #163e52 0%,
+        #0d2a3b 45%,
+        #071522 100%);
+}
+
+canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+#hud {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    right: 15px;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.panel {
+    background: rgba(0, 10, 20, .65);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 14px;
+    padding: 10px 16px;
+    color: white;
+}
+
+#score {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+#stats {
+    color: #a9cbd8;
+    font-size: 13px;
+    margin-top: 3px;
+}
+
+#message {
+    position: absolute;
+    z-index: 20;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: white;
+}
+
+#message h1 {
+    font-size: clamp(40px, 8vw, 75px);
+    margin: 0 0 10px;
+    text-shadow: 0 5px 25px black;
+}
+
+#message p {
+    color: #c5dce5;
+    font-size: 17px;
+}
+
+button {
+    border: none;
+    border-radius: 12px;
+    padding: 13px 26px;
+    background: #37c9ff;
+    color: #032033;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #70dcff;
+}
+
+#restart {
+    display: none;
+}
+
+#tip {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 15px;
+    border-radius: 20px;
+    background: rgba(0,0,0,.45);
+    color: #b7d1db;
+    font-size: 12px;
+    pointer-events: none;
+}
+</style>
+</head>
+
+<body>
+
+<div id="game">
+
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+
+        <div class="panel">
+            <div id="score">Score: 0</div>
+            <div id="stats">
+                Landed: 0 · Difficulty: 1 · Crashes: 0/3
+            </div>
+        </div>
+
+        <div class="panel">
+            <div id="best">Best: 0</div>
+        </div>
+
+    </div>
+
+    <div id="message">
+
+        <h1 id="title">Plane Problems</h1>
+
+        <button id="startButton">
+            START GAME
+        </button>
+
+        <br><br>
+
+        <button id="restart">
+            PLAY AGAIN
+        </button>
+
+    </div>
+
+</div>
+
+
+<script>
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let W = 0;
+let H = 0;
+
+let planes = [];
+let airports = [];
+let particles = [];
+
+let running = false;
+let gameOver = false;
+
+let score = 0;
+let landed = 0;
+let difficulty = 1;
+
+let crashes = 0;
+
+const MAX_CRASHES = 3;
+
+
+/* --------------------------------------------------
+   CRASH SLOW MOTION
+-------------------------------------------------- */
+
+const CRASH_SLOW_DURATION = 2.2;
+
+const CRASH_SLOW_FACTOR = 0.18;
+
+let crashSlowTimer = 0;
+
+
+/* --------------------------------------------------
+   CRASH BLAST SETTINGS
+-------------------------------------------------- */
+
+const CRASH_BLAST_RADIUS = 105;
+
+const CRASH_BLAST_VARIATION = 12;
+
+let planesCaughtInCrash = new Set();
+
+let crashEffects = [];
+
+const CRASH_EFFECT_DURATION = 2.2;
+
+
+let spawnTimer = 0;
+
+let drawingPlane = null;
+let currentPath = [];
+let pointerDown = false;
+
+
+/* --------------------------------------------------
+   SPAWN SETTINGS
+-------------------------------------------------- */
+
+const SPAWN_COOLDOWN = 5;
+const SPAWN_CHECK_RADIUS = 120;
+
+let spawnHistory = [];
+
+
+/* --------------------------------------------------
+   PLANE PROXIMITY WARNING
+-------------------------------------------------- */
+
+const PLANE_WARNING_DISTANCE = 80;
+
+const WARNING_RING_RADIUS = 25;
+
+let warningRotation = 0;
+
+
+/* --------------------------------------------------
+   AIRPORT POSITION SETTINGS
+-------------------------------------------------- */
+
+const AIRPORT_EDGE_MARGIN = 120;
+
+const MIN_AIRPORT_DISTANCE = 100;
+
+
+/* --------------------------------------------------
+   COLORS
+-------------------------------------------------- */
+
+const COLORS = {
+    red: "#ff5257",
+    blue: "#45c9ff",
+    yellow: "#ffd211",
+    green: "#55e48a",
+    purple: "#A020F0",
+    pink: "#FFC0CB",
+    brown: "#7B3F00"
+};
+
+const COLOR_LIST = [
+    COLORS.red,
+    COLORS.blue,
+    COLORS.yellow,
+    COLORS.green,
+    COLORS.purple,
+    COLORS.pink,
+    COLORS.brown
+];
+
+let bestScore =
+    Number(localStorage.getItem("flightControlBest") || 0);
+
+document.getElementById("best").textContent =
+    "Best: " + bestScore;
+
+
+/* --------------------------------------------------
+   RESIZE
+-------------------------------------------------- */
+
+function resize() {
+
+    W = window.innerWidth;
+    H = window.innerHeight;
+
+    const dpr =
+        Math.min(window.devicePixelRatio || 1, 2);
+
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+
+    ctx.setTransform(
+        dpr,
+        0,
+        0,
+        dpr,
+        0,
+        0
+    );
+
+    if (airports.length === 0) {
+        setupAirports();
+    }
+}
+
+window.addEventListener(
+    "resize",
+    resize
+);
+
+
+/* --------------------------------------------------
+   HELPERS
+-------------------------------------------------- */
+
+function random(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+function distance(a, b) {
+
+    return Math.hypot(
+        a.x - b.x,
+        a.y - b.y
+    );
+}
+
+function pointerPosition(e) {
+
+    const rect =
+        canvas.getBoundingClientRect();
+
+    return {
+
+        x:
+            (e.clientX - rect.left)
+            * W / rect.width,
+
+        y:
+            (e.clientY - rect.top)
+            * H / rect.height
+    };
+}
+
+
+/* --------------------------------------------------
+   AIRPORTS
+-------------------------------------------------- */
+
+function setupAirports() {
+
+    const airportColors = [
+        COLORS.red,
+        COLORS.blue,
+        COLORS.yellow,
+        COLORS.green,
+        COLORS.purple,
+        COLORS.pink,
+        COLORS.brown
+    ];
+
+    const radius = 29;
+
+    const margin =
+        Math.max(
+            AIRPORT_EDGE_MARGIN,
+            radius + 10
+        );
+
+    airports = [];
+
+    for (
+        let i = 0;
+        i < airportColors.length;
+        i++
+    ) {
+
+        let position = null;
+
+        for (
+            let attempt = 0;
+            attempt < 1000;
+            attempt++
+        ) {
+
+            const candidate = {
+
+                x: random(
+                    margin,
+                    W - margin
+                ),
+
+                y: random(
+                    margin,
+                    H - margin
+                )
+            };
+
+            let valid = true;
+
+            for (
+                const airport of airports
+            ) {
+
+                if (
+                    distance(
+                        candidate,
+                        airport
+                    ) < MIN_AIRPORT_DISTANCE
+                ) {
+
+                    valid = false;
+                    break;
+                }
+            }
+
+            if (valid) {
+
+                position = candidate;
+                break;
+            }
+        }
+
+        if (!position) {
+
+            const columns = 3;
+
+            const rows =
+                Math.ceil(
+                    airportColors.length /
+                    columns
+                );
+
+            const col =
+                i % columns;
+
+            const row =
+                Math.floor(i / columns);
+
+            position = {
+
+                x:
+                    margin +
+                    (
+                        (W - margin * 2) /
+                        Math.max(1, columns - 1)
+                    ) * col,
+
+                y:
+                    margin +
+                    (
+                        (H - margin * 2) /
+                        Math.max(1, rows - 1)
+                    ) * row
+            };
+
+            position.x =
+                Math.max(
+                    margin,
+                    Math.min(
+                        W - margin,
+                        position.x
+                    )
+                );
+
+            position.y =
+                Math.max(
+                    margin,
+                    Math.min(
+                        H - margin,
+                        position.y
+                    )
+                );
+        }
+
+        airports.push({
+
+            x: position.x,
+            y: position.y,
+
+            color: airportColors[i],
+
+            radius: radius,
+
+            pulse:
+                random(
+                    0,
+                    Math.PI * 2
+                )
+        });
+    }
+}
+
+
+/* --------------------------------------------------
+   CREATE PLANE
+-------------------------------------------------- */
+
+function createPlane() {
+
+    const MAX_SPAWN_ATTEMPTS = 20;
+
+    const now =
+        performance.now() / 1000;
+
+    spawnHistory =
+        spawnHistory.filter(
+            spawn =>
+                now - spawn.time <
+                SPAWN_COOLDOWN
+        );
+
+    let x;
+    let y;
+    let validSpawn = false;
+
+    for (
+        let attempt = 0;
+        attempt < MAX_SPAWN_ATTEMPTS;
+        attempt++
+    ) {
+
+        const side =
+            Math.floor(random(0, 4));
+
+        if (side === 0) {
+
+            x = -20;
+            y = random(100, H - 100);
+
+        } else if (side === 1) {
+
+            x = W + 20;
+            y = random(100, H - 100);
+
+        } else if (side === 2) {
+
+            x = random(100, W - 100);
+            y = -20;
+
+        } else {
+
+            x = random(100, W - 100);
+            y = H + 20;
+        }
+
+        const spawnTooClose =
+            spawnHistory.some(
+                spawn =>
+                    Math.hypot(
+                        x - spawn.x,
+                        y - spawn.y
+                    ) < SPAWN_CHECK_RADIUS
+            );
+
+        if (!spawnTooClose) {
+
+            validSpawn = true;
+            break;
+        }
+    }
+
+    if (!validSpawn) {
+        return null;
+    }
+
+    spawnHistory.push({
+
+        x: x,
+        y: y,
+
+        time: now
+
+    });
+
+    const speed =
+        random(
+            15,
+            50 + random(-13, 16)
+        );
+
+    const centreX = W / 2;
+    const centreY = H / 2;
+
+    const angleToCentre =
+        Math.atan2(
+            centreY - y,
+            centreX - x
+        );
+
+    const maximumDeviation =
+        90 * Math.PI / 90;
+
+    const initialAngle =
+        angleToCentre +
+        random(
+            -maximumDeviation,
+            maximumDeviation
+        );
+
+    return {
+
+        x,
+        y,
+
+        vx: 0,
+        vy: 0,
+
+        angle: initialAngle,
+
+        speed,
+
+        radius: 13,
+
+        /*
+           Random plane size:
+           0.9x = slightly smaller than current
+           2.0x = twice the current size
+        */
+        size: random(0.88, 1.3),
+
+        color:
+            COLOR_LIST[
+                Math.floor(
+                    random(
+                        0,
+                        COLOR_LIST.length
+                    )
+                )
+            ],
+
+        path: [],
+
+        targetIndex: 0,
+
+        trail: [],
+
+        selected: false
+    };
+}
+
+
+/* --------------------------------------------------
+   START GAME
+-------------------------------------------------- */
+
+function startGame() {
+
+    score = 0;
+    landed = 0;
+    difficulty = 1;
+
+    crashes = 0;
+
+    spawnTimer = 0;
+
+    crashSlowTimer = 0;
+
+    planes = [];
+    particles = [];
+    crashEffects = [];
+
+    spawnHistory = [];
+
+    planesCaughtInCrash.clear();
+
+    gameOver = false;
+    running = true;
+
+    warningRotation = 0;
+
+    setupAirports();
+
+    const firstPlane =
+        createPlane();
+
+    if (firstPlane) {
+
+        planes.push(
+            firstPlane
+        );
+    }
+
+    document.getElementById("message")
+        .style.display = "none";
+
+    updateHUD();
+}
+
+
+/* --------------------------------------------------
+   GAME OVER
+-------------------------------------------------- */
+
+function endGame() {
+
+    running = false;
+    gameOver = true;
+
+    if (score > bestScore) {
+
+        bestScore = score;
+
+        localStorage.setItem(
+            "flightControlBest",
+            bestScore
+        );
+    }
+
+    document.getElementById("title")
+        .textContent = "GAME OVER";
+
+    let subtitle =
+        document.getElementById("subtitle");
+
+    if (!subtitle) {
+
+        subtitle =
+            document.createElement("p");
+
+        subtitle.id = "subtitle";
+
+        document.getElementById("message")
+            .insertBefore(
+                subtitle,
+                document.getElementById("startButton")
+            );
+    }
+
+    subtitle.textContent =
+        `Score: ${score} · Planes landed: ${landed} · Crashes: ${crashes}`;
+
+    document.getElementById("message")
+        .style.display = "block";
+
+    document.getElementById("startButton")
+        .style.display = "none";
+
+    document.getElementById("restart")
+        .style.display = "inline-block";
+
+    document.getElementById("best")
+        .textContent =
+        "Best: " + bestScore;
+}
+
+
+/* --------------------------------------------------
+   HUD
+-------------------------------------------------- */
+
+function updateHUD() {
+
+    document.getElementById("score")
+        .textContent =
+        "Score: " + score;
+
+    document.getElementById("stats")
+        .textContent =
+        `Landed: ${landed} · Difficulty: ${difficulty.toFixed(1)} · Crashes: ${crashes}/${MAX_CRASHES}`;
+}
+
+
+/* ==================================================
+   INPUT
+================================================== */
+
+canvas.addEventListener(
+    "pointerdown",
+    e => {
+
+        if (!running)
+            return;
+
+        const p =
+            pointerPosition(e);
+
+        let closest = null;
+        let closestDistance = 32;
+
+        for (const plane of planes) {
+
+            const d =
+                distance(p, plane);
+
+            if (
+                d < closestDistance
+            ) {
+
+                closestDistance = d;
+                closest = plane;
+            }
+        }
+
+        if (!closest)
+            return;
+
+        pointerDown = true;
+
+        drawingPlane = closest;
+
+        drawingPlane.selected = true;
+
+        currentPath = [
+            {
+                x: closest.x,
+                y: closest.y
+            }
+        ];
+
+        drawingPlane.path =
+            currentPath;
+
+        drawingPlane.targetIndex = 1;
+
+        canvas.setPointerCapture(
+            e.pointerId
+        );
+    }
+);
+
+
+canvas.addEventListener(
+    "pointermove",
+    e => {
+
+        if (
+            !pointerDown ||
+            !drawingPlane
+        )
+            return;
+
+        const p =
+            pointerPosition(e);
+
+        const last =
+            currentPath[
+                currentPath.length - 1
+            ];
+
+        if (
+            !last ||
+            distance(p, last) > 6
+        ) {
+
+            currentPath.push({
+                x: p.x,
+                y: p.y
+            });
+
+            drawingPlane.path =
+                currentPath;
+        }
+    }
+);
+
+
+function finishDrawing(e) {
+
+    if (!pointerDown)
+        return;
+
+    pointerDown = false;
+
+    const plane =
+        drawingPlane;
+
+    drawingPlane = null;
+
+    if (!plane)
+        return;
+
+    const p =
+        pointerPosition(e);
+
+    let nearestAirport = null;
+    let nearestDistance = Infinity;
+
+    for (const airport of airports) {
+
+        if (airport.color !== plane.color)
+            continue;
+
+        const d =
+            distance(
+                p,
+                airport
+            );
+
+        if (
+            d < nearestDistance
+        ) {
+
+            nearestDistance = d;
+            nearestAirport = airport;
+        }
+    }
+
+    if (
+        nearestAirport &&
+        nearestDistance < 90
+    ) {
+
+        currentPath.push({
+
+            x: nearestAirport.x,
+            y: nearestAirport.y,
+
+            airport:
+                nearestAirport
+        });
+
+        plane.path =
+            currentPath;
+    }
+
+    plane.selected = false;
+
+    currentPath = [];
+}
+
+
+canvas.addEventListener(
+    "pointerup",
+    finishDrawing
+);
+
+canvas.addEventListener(
+    "pointercancel",
+    finishDrawing
+);
+
+
+/* ==================================================
+   UPDATE
+================================================== */
+
+function update(dt) {
+
+    const simulationDt =
+        crashSlowTimer > 0
+            ? dt * CRASH_SLOW_FACTOR
+            : dt;
+
+    if (crashSlowTimer > 0) {
+
+        crashSlowTimer -= dt;
+
+        if (crashSlowTimer < 0) {
+            crashSlowTimer = 0;
+        }
+    }
+
+    updateCrashEffects(dt);
+
+    if (!running) {
+
+        updateParticles(
+            simulationDt
+        );
+
+        return;
+    }
+
+    warningRotation +=
+        simulationDt * 4;
+
+    spawnTimer +=
+        simulationDt;
+
+    const spawnRate =
+        Math.max(
+            1,
+            15 -
+            difficulty * 0.51
+        );
+
+    if (
+        spawnTimer > spawnRate &&
+        planes.length < difficulty / 3 + 2
+    ) {
+
+        spawnTimer = 0;
+
+        const newPlane =
+            createPlane();
+
+        if (newPlane) {
+
+            planes.push(
+                newPlane
+            );
+        }
+    }
+
+
+    /*
+       UPDATE PLANES
+    */
+
+    for (
+        const plane of [...planes]
+    ) {
+
+        if (
+            plane.path.length > 0 &&
+            plane.targetIndex <
+            plane.path.length
+        ) {
+
+            let target = null;
+
+            while (
+                plane.path.length > 0 &&
+                plane.targetIndex <
+                plane.path.length
+            ) {
+
+                const candidate =
+                    plane.path[
+                        plane.targetIndex
+                    ];
+
+                const d =
+                    distance(
+                        plane,
+                        candidate
+                    );
+
+                if (d < 12) {
+
+                    const reachedTarget =
+                        candidate;
+
+                    plane.path.splice(
+                        0,
+                        plane.targetIndex + 1
+                    );
+
+                    plane.targetIndex = 0;
+
+                    if (
+                        reachedTarget.airport &&
+                        plane.path.length === 0
+                    ) {
+
+                        landPlane(
+                            plane,
+                            reachedTarget.airport
+                        );
+
+                        target = null;
+
+                        break;
+                    }
+
+                    continue;
+                }
+
+                target = candidate;
+
+                break;
+            }
+
+            if (
+                !planes.includes(plane)
+            ) {
+
+                continue;
+            }
+
+            if (target) {
+
+                const tx =
+                    target.x -
+                    plane.x;
+
+                const ty =
+                    target.y -
+                    plane.y;
+
+                const len =
+                    Math.hypot(
+                        tx,
+                        ty
+                    );
+
+                if (len > 0.001) {
+
+                    plane.vx =
+                        tx / len *
+                        plane.speed;
+
+                    plane.vy =
+                        ty / len *
+                        plane.speed;
+
+                    plane.angle =
+                        Math.atan2(
+                            plane.vy,
+                            plane.vx
+                        );
+
+                } else {
+
+                    plane.vx =
+                        Math.cos(
+                            plane.angle
+                        ) *
+                        plane.speed;
+
+                    plane.vy =
+                        Math.sin(
+                            plane.angle
+                        ) *
+                        plane.speed;
+                }
+
+            } else {
+
+                plane.vx =
+                    Math.cos(
+                        plane.angle
+                    ) *
+                    plane.speed;
+
+                plane.vy =
+                    Math.sin(
+                        plane.angle
+                    ) *
+                    plane.speed;
+            }
+
+        } else {
+
+            plane.vx =
+                Math.cos(
+                    plane.angle
+                ) *
+                plane.speed;
+
+            plane.vy =
+                Math.sin(
+                    plane.angle
+                ) *
+                plane.speed;
+        }
+
+
+        /*
+           MOVE
+        */
+
+        plane.x +=
+            plane.vx * simulationDt;
+
+        plane.y +=
+            plane.vy * simulationDt;
+
+
+        /*
+           EDGE BOUNCING
+        */
+
+        const margin =
+            plane.radius + 2;
+
+        if (
+            plane.x < margin
+        ) {
+
+            plane.x = margin;
+
+            plane.vx =
+                Math.abs(
+                    plane.vx
+                );
+
+            plane.angle =
+                Math.atan2(
+                    plane.vy,
+                    plane.vx
+                );
+        }
+
+
+        if (
+            plane.x >
+            W - margin
+        ) {
+
+            plane.x =
+                W - margin;
+
+            plane.vx =
+                -Math.abs(
+                    plane.vx
+                );
+
+            plane.angle =
+                Math.atan2(
+                    plane.vy,
+                    plane.vx
+                );
+        }
+
+
+        if (
+            plane.y < margin
+        ) {
+
+            plane.y = margin;
+
+            plane.vy =
+                Math.abs(
+                    plane.vy
+                );
+
+            plane.angle =
+                Math.atan2(
+                    plane.vy,
+                    plane.vx
+                );
+        }
+
+
+        if (
+            plane.y >
+            H - margin
+        ) {
+
+            plane.y =
+                H - margin;
+
+            plane.vy =
+                -Math.abs(
+                    plane.vy
+                );
+
+            plane.angle =
+                Math.atan2(
+                    plane.vy,
+                    plane.vx
+                );
+        }
+
+
+        /*
+           Trail.
+        */
+
+        plane.trail.push({
+            x: plane.x,
+            y: plane.y
+        });
+
+        if (
+            plane.trail.length > 18
+        ) {
+
+            plane.trail.shift();
+        }
+    }
+
+
+    checkCollisions();
+
+    updateParticles(
+        simulationDt
+    );
+
+    updateHUD();
+}
+
+
+/* --------------------------------------------------
+   LANDING
+-------------------------------------------------- */
+
+function landPlane(
+    plane,
+    airport
+) {
+
+    score += 100;
+
+    landed++;
+
+    difficulty+= 0.8;
+
+    createParticles(
+        plane.x,
+        plane.y,
+        airport.color,
+        18
+    );
+
+    removePlane(plane);
+}
+
+
+/* --------------------------------------------------
+   REMOVE PLANE
+-------------------------------------------------- */
+
+function removePlane(plane) {
+
+    const index =
+        planes.indexOf(plane);
+
+    if (index !== -1) {
+
+        planes.splice(
+            index,
+            1
+        );
+    }
+}
+
+
+/* ==================================================
+   CRASH SYSTEM
+================================================== */
+
+function crashPlanes(a, b) {
+
+    crashes++;
+
+    difficulty = Math.max(
+        1,
+        difficulty - (difficulty / 2 + 5)
+    );
+
+    planesCaughtInCrash.clear();
+
+    triggerCrashChain(
+        a.x,
+        a.y,
+        [a, b]
+    );
+
+    crashSlowTimer =
+        CRASH_SLOW_DURATION;
+
+    if (
+        crashes >= MAX_CRASHES
+    ) {
+
+        endGame();
+    }
+
+    updateHUD();
+}
+
+
+function triggerCrashChain(
+    originX,
+    originY,
+    initialPlanes = []
+) {
+
+    const destroyedPlanes = [];
+
+    for (
+        const plane of initialPlanes
+    ) {
+
+        if (
+            plane &&
+            !planesCaughtInCrash.has(plane)
+        ) {
+
+            planesCaughtInCrash.add(plane);
+
+            destroyedPlanes.push(plane);
+        }
+    }
+
+    for (
+        const plane of [...planes]
+    ) {
+
+        if (
+            planesCaughtInCrash.has(plane)
+        ) {
+            continue;
+        }
+
+        const d =
+            Math.hypot(
+                plane.x - originX,
+                plane.y - originY
+            );
+
+        const effectiveRadius =
+            CRASH_BLAST_RADIUS +
+            random(
+                -CRASH_BLAST_VARIATION,
+                CRASH_BLAST_VARIATION
+            );
+
+        if (
+            d <= effectiveRadius
+        ) {
+
+            planesCaughtInCrash.add(plane);
+
+            destroyedPlanes.push(plane);
+        }
+    }
+
+    if (
+        destroyedPlanes.length === 0
+    ) {
+        return;
+    }
+
+    for (
+        const plane of destroyedPlanes
+    ) {
+
+        removePlane(plane);
+    }
+
+    for (
+        const plane of destroyedPlanes
+    ) {
+
+        createExplosion(
+            plane.x,
+            plane.y,
+            plane.color
+        );
+
+        crashEffects.push({
+
+            x: plane.x,
+            y: plane.y,
+
+            age: 0,
+
+            flash: 0.55
+        });
+    }
+
+    createParticles(
+        originX,
+        originY,
+        "#ff3030",
+        45
+    );
+
+    createParticles(
+        originX,
+        originY,
+        "#ff8a32",
+        35
+    );
+
+    createParticles(
+        originX,
+        originY,
+        "#fff7d6",
+        18
+    );
+
+    for (
+        const plane of destroyedPlanes
+    ) {
+
+        triggerCrashChain(
+            plane.x,
+            plane.y
+        );
+    }
+}
+
+
+/* --------------------------------------------------
+   EXPLOSION
+-------------------------------------------------- */
+
+function createExplosion(
+    x,
+    y,
+    color
+) {
+
+    createParticles(
+        x,
+        y,
+        color,
+        42
+    );
+
+    createParticles(
+        x,
+        y,
+        "#ff5a36",
+        34
+    );
+
+    createParticles(
+        x,
+        y,
+        "#ffcc33",
+        20
+    );
+
+    createParticles(
+        x,
+        y,
+        "#fff3c4",
+        16
+    );
+
+    createParticles(
+        x,
+        y,
+        "#ff3030",
+        18
+    );
+}
+
+
+/* ==================================================
+   COLLISIONS
+================================================== */
+
+function checkCollisions() {
+
+    for (
+        let i = 0;
+        i < planes.length;
+        i++
+    ) {
+
+        for (
+            let j = i + 1;
+            j < planes.length;
+            j++
+        ) {
+
+            const a =
+                planes[i];
+
+            const b =
+                planes[j];
+
+            if (
+                distance(a, b) < 22
+            ) {
+
+                crashPlanes(
+                    a,
+                    b
+                );
+
+                return;
+            }
+        }
+    }
+}
+
+
+/* ==================================================
+   PARTICLES
+================================================== */
+
+function createParticles(
+    x,
+    y,
+    color,
+    amount
+) {
+
+    for (
+        let i = 0;
+        i < amount;
+        i++
+    ) {
+
+        const angle =
+            random(
+                0,
+                Math.PI * 2
+            );
+
+        const speed =
+            random(
+                40,
+                220
+            );
+
+        particles.push({
+
+            x,
+            y,
+
+            vx:
+                Math.cos(angle) *
+                speed,
+
+            vy:
+                Math.sin(angle) *
+                speed,
+
+            life:
+                random(
+                    .18,
+                    .65
+                ),
+
+            maxLife: .65,
+
+            size:
+                random(
+                    2,
+                    5
+                ),
+
+            color
+        });
+    }
+}
+
+
+function updateParticles(dt) {
+
+    for (
+        let i = particles.length - 1;
+        i >= 0;
+        i--
+    ) {
+
+        const p =
+            particles[i];
+
+        p.life -= dt;
+
+        p.x +=
+            p.vx * dt;
+
+        p.y +=
+            p.vy * dt;
+
+        p.vy +=
+            45 * dt;
+
+        p.vx *= .965;
+        p.vy *= .965;
+
+        if (
+            p.life <= 0
+        ) {
+
+            particles.splice(
+                i,
+                1
+            );
+        }
+    }
+}
+
+
+/* ==================================================
+   CRASH VISUAL EFFECTS
+================================================== */
+
+function updateCrashEffects(realDt) {
+
+    for (
+        let i = crashEffects.length - 1;
+        i >= 0;
+        i--
+    ) {
+
+        const effect =
+            crashEffects[i];
+
+        effect.age += realDt;
+
+        effect.flash =
+            Math.max(
+                0,
+                1 - effect.age / 0.35
+            );
+
+        if (
+            effect.age >=
+            CRASH_EFFECT_DURATION
+        ) {
+
+            crashEffects.splice(
+                i,
+                1
+            );
+        }
+    }
+}
+
+
+/* ==================================================
+   DRAW BACKGROUND
+================================================== */
+
+function drawBackground() {
+
+    ctx.fillStyle =
+        "#0b2738";
+
+    ctx.fillRect(
+        0,
+        0,
+        W,
+        H
+    );
+
+    ctx.strokeStyle =
+        "rgba(100,200,100,.035)";
+
+    ctx.lineWidth = 1;
+
+    const grid = 60;
+
+    for (
+        let x = 0;
+        x < W;
+        x += grid
+    ) {
+
+        ctx.beginPath();
+
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, H);
+
+        ctx.stroke();
+    }
+
+    for (
+        let y = 0;
+        y < H;
+        y += grid
+    ) {
+
+        ctx.beginPath();
+
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+
+        ctx.stroke();
+    }
+}
+
+
+/* ==================================================
+   DRAW AIRPORTS
+================================================== */
+
+function drawAirports() {
+
+    for (
+        const airport of airports
+    ) {
+
+        airport.pulse += .04;
+
+        const pulse =
+            Math.sin(
+                airport.pulse
+            ) * 2.7;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            airport.x,
+            airport.y,
+            airport.radius +
+            7.2 +
+            pulse,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fillStyle =
+            airport.color + "20";
+
+        ctx.fill();
+
+
+        ctx.beginPath();
+
+        ctx.arc(
+            airport.x,
+            airport.y,
+            airport.radius,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fillStyle =
+            "#102d3c";
+
+        ctx.fill();
+
+        ctx.strokeStyle =
+            airport.color;
+
+        ctx.lineWidth = 4;
+
+        ctx.stroke();
+
+
+        ctx.save();
+
+        ctx.translate(
+            airport.x,
+            airport.y
+        );
+
+        ctx.rotate(
+            Math.PI / 4
+        );
+
+        ctx.fillStyle =
+            airport.color;
+
+        ctx.fillRect(
+            -16.2,
+            -4.5,
+            32.4,
+            9
+        );
+
+        ctx.fillStyle =
+            "#102d3c";
+
+        ctx.fillRect(
+            -6.3,
+            -4.5,
+            4.5,
+            9
+        );
+
+        ctx.fillRect(
+            2.7,
+            -4.5,
+            4.5,
+            9
+        );
+
+        ctx.restore();
+
+
+        ctx.beginPath();
+
+        ctx.arc(
+            airport.x,
+            airport.y,
+            3.6,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fillStyle =
+            airport.color;
+
+        ctx.fill();
+    }
+}
+
+
+/* ==================================================
+   DRAW PATHS
+================================================== */
+
+function drawPaths() {
+
+    if (
+        currentPath.length > 1
+    ) {
+
+        drawPath(
+            currentPath,
+            "#ffffff",
+            true
+        );
+    }
+
+    for (
+        const plane of planes
+    ) {
+
+        if (
+            plane.path.length > 1
+        ) {
+
+            drawPath(
+                plane.path,
+                plane.color,
+                false
+            );
+        }
+    }
+}
+
+
+function drawPath(
+    path,
+    color,
+    temporary
+) {
+
+    if (
+        path.length < 2
+    )
+        return;
+
+    ctx.save();
+
+    ctx.strokeStyle =
+        color;
+
+    ctx.lineWidth =
+        temporary ? 5 : 3;
+
+    ctx.lineCap =
+        "round";
+
+    ctx.lineJoin =
+        "round";
+
+    ctx.globalAlpha =
+        temporary ? .8 : .35;
+
+    if (!temporary) {
+
+        ctx.setLineDash([
+            7,
+            9
+        ]);
+    }
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        path[0].x,
+        path[0].y
+    );
+
+    for (
+        let i = 1;
+        i < path.length;
+        i++
+    ) {
+
+        ctx.lineTo(
+            path[i].x,
+            path[i].y
+        );
+    }
+
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+
+/* ==================================================
+   DRAW PLANE WARNINGS
+================================================== */
+
+function drawPlaneWarnings() {
+
+    const warningPlanes = new Set();
+
+    for (
+        let i = 0;
+        i < planes.length;
+        i++
+    ) {
+
+        for (
+            let j = i + 1;
+            j < planes.length;
+            j++
+        ) {
+
+            const a =
+                planes[i];
+
+            const b =
+                planes[j];
+
+            if (
+                distance(a, b) <=
+                PLANE_WARNING_DISTANCE
+            ) {
+
+                warningPlanes.add(a);
+                warningPlanes.add(b);
+            }
+        }
+    }
+
+
+    for (
+        const plane of warningPlanes
+    ) {
+
+        ctx.save();
+
+        ctx.translate(
+            plane.x,
+            plane.y
+        );
+
+        ctx.rotate(
+            warningRotation
+        );
+
+
+        ctx.beginPath();
+
+        ctx.arc(
+            0,
+            0,
+            WARNING_RING_RADIUS + 5,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.strokeStyle =
+            "rgba(255, 35, 35, .20)";
+
+        ctx.lineWidth = 6;
+
+        ctx.stroke();
+
+
+        ctx.beginPath();
+
+        ctx.arc(
+            0,
+            0,
+            WARNING_RING_RADIUS,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.strokeStyle =
+            "#ff3030";
+
+        ctx.lineWidth = 3;
+
+        ctx.setLineDash([
+            9,
+            6
+        ]);
+
+        ctx.lineCap =
+            "round";
+
+        ctx.stroke();
+
+
+        ctx.setLineDash([]);
+
+        ctx.beginPath();
+
+        ctx.arc(
+            0,
+            0,
+            WARNING_RING_RADIUS,
+            -0.45,
+            0.15
+        );
+
+        ctx.strokeStyle =
+            "#ff7777";
+
+        ctx.lineWidth = 4;
+
+        ctx.stroke();
+
+        ctx.restore();
+    }
+}
+
+
+/* ==================================================
+   DRAW PLANES
+================================================== */
+
+function drawPlane(plane) {
+
+    if (
+        plane.trail.length > 1
+    ) {
+
+        ctx.save();
+
+        for (
+            let i = 1;
+            i < plane.trail.length;
+            i++
+        ) {
+
+            const alpha =
+                i /
+                plane.trail.length *
+                .25;
+
+            ctx.strokeStyle =
+                plane.color;
+
+            ctx.globalAlpha =
+                alpha;
+
+            ctx.lineWidth = 2;
+
+            ctx.beginPath();
+
+            ctx.moveTo(
+                plane.trail[i - 1].x,
+                plane.trail[i - 1].y
+            );
+
+            ctx.lineTo(
+                plane.trail[i].x,
+                plane.trail[i].y
+            );
+
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
+
+    ctx.save();
+
+    ctx.translate(
+        plane.x,
+        plane.y
+    );
+
+    ctx.rotate(
+        plane.angle
+    );
+
+    /*
+       Apply the randomly generated plane size.
+       The original plane scale was 1.35, so this
+       preserves the original size as the baseline.
+    */
+    ctx.scale(
+        1.35 * plane.size,
+        1.35 * plane.size
+    );
+
+
+    if (
+        plane.selected
+    ) {
+
+        ctx.beginPath();
+
+        ctx.arc(
+            0,
+            0,
+            23,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.strokeStyle =
+            "#ffffff";
+
+        ctx.lineWidth = 2;
+
+        ctx.globalAlpha = .8;
+
+        ctx.stroke();
+    }
+
+
+    ctx.fillStyle =
+        "rgba(0,0,0,.3)";
+
+    ctx.beginPath();
+
+    ctx.ellipse(
+        2,
+        4,
+        17,
+        8,
+        0,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+
+    ctx.fillStyle =
+        plane.color;
+
+    ctx.beginPath();
+
+    ctx.moveTo(-4, 0);
+    ctx.lineTo(-14, -12);
+    ctx.lineTo(-9, -14);
+    ctx.lineTo(2, -3);
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(-4, 0);
+    ctx.lineTo(-14, 12);
+    ctx.lineTo(-9, 14);
+    ctx.lineTo(2, 3);
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(-10, 0);
+    ctx.lineTo(-17, -7);
+    ctx.lineTo(-14, 0);
+    ctx.lineTo(-17, 7);
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(17, 0);
+
+    ctx.quadraticCurveTo(
+        5,
+        -5,
+        -13,
+        -4
+    );
+
+    ctx.lineTo(
+        -14,
+        4
+    );
+
+    ctx.quadraticCurveTo(
+        5,
+        5,
+        17,
+        0
+    );
+
+    ctx.fill();
+
+
+    ctx.fillStyle =
+        "#e9fbff";
+
+    ctx.beginPath();
+
+    ctx.ellipse(
+        7,
+        -1,
+        4,
+        3,
+        0,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+    ctx.restore();
+}
+
+
+/* ==================================================
+   DRAW PARTICLES
+================================================== */
+
+function drawParticles() {
+
+    for (
+        const p of particles
+    ) {
+
+        ctx.globalAlpha =
+            Math.max(
+                0,
+                p.life /
+                p.maxLife
+            );
+
+        ctx.fillStyle =
+            p.color;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            p.x,
+            p.y,
+            p.size,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+
+/* ==================================================
+   DRAW CRASH EFFECTS
+================================================== */
+
+function drawCrashEffects() {
+
+    for (
+        const effect of crashEffects
+    ) {
+
+        const progress =
+            Math.min(
+                effect.age /
+                CRASH_EFFECT_DURATION,
+                1
+            );
+
+        const ring1 =
+            35 +
+            progress * 180;
+
+        const ring2 =
+            20 +
+            progress * 100;
+
+        const alpha =
+            1 - progress;
+
+
+        ctx.save();
+
+
+        ctx.globalAlpha =
+            alpha * 0.25;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            effect.x,
+            effect.y,
+            ring1,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.strokeStyle =
+            "#ff2020";
+
+        ctx.lineWidth = 18;
+
+        ctx.stroke();
+
+
+        ctx.globalAlpha =
+            alpha * 0.9;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            effect.x,
+            effect.y,
+            ring1,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.strokeStyle =
+            "#ff3838";
+
+        ctx.lineWidth = 4;
+
+        ctx.stroke();
+
+
+        ctx.globalAlpha =
+            alpha * 0.75;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            effect.x,
+            effect.y,
+            ring2,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.strokeStyle =
+            "#ff9d32";
+
+        ctx.lineWidth = 3;
+
+        ctx.stroke();
+
+
+        const centreSize =
+            Math.max(
+                5,
+                26 * (1 - progress)
+            );
+
+        const gradient =
+            ctx.createRadialGradient(
+                effect.x,
+                effect.y,
+                0,
+                effect.x,
+                effect.y,
+                centreSize * 3
+            );
+
+        gradient.addColorStop(
+            0,
+            "rgba(255,255,255,.95)"
+        );
+
+        gradient.addColorStop(
+            0.2,
+            "rgba(255,180,50,.8)"
+        );
+
+        gradient.addColorStop(
+            0.5,
+            "rgba(255,50,30,.35)"
+        );
+
+        gradient.addColorStop(
+            1,
+            "rgba(255,30,30,0)"
+        );
+
+        ctx.globalAlpha =
+            alpha;
+
+        ctx.fillStyle =
+            gradient;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            effect.x,
+            effect.y,
+            centreSize * 3,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+
+
+        ctx.globalAlpha =
+            alpha * 0.9;
+
+        ctx.strokeStyle =
+            "#ff6666";
+
+        ctx.lineWidth = 2;
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            effect.x - 32,
+            effect.y
+        );
+
+        ctx.lineTo(
+            effect.x - 12,
+            effect.y
+        );
+
+        ctx.moveTo(
+            effect.x + 12,
+            effect.y
+        );
+
+        ctx.lineTo(
+            effect.x + 32,
+            effect.y
+        );
+
+        ctx.moveTo(
+            effect.x,
+            effect.y - 32
+        );
+
+        ctx.lineTo(
+            effect.x,
+            effect.y - 12
+        );
+
+        ctx.moveTo(
+            effect.x,
+            effect.y + 12
+        );
+
+        ctx.lineTo(
+            effect.x,
+            effect.y + 32
+        );
+
+        ctx.stroke();
+
+
+        ctx.restore();
+    }
+
+
+    for (
+        const effect of crashEffects
+    ) {
+
+        if (
+            effect.flash <= 0
+        ) {
+
+            continue;
+        }
+
+        ctx.save();
+
+        ctx.fillStyle =
+            `rgba(255, 80, 50, ${
+                effect.flash * 0.16
+            })`;
+
+        ctx.fillRect(
+            0,
+            0,
+            W,
+            H
+        );
+
+        ctx.restore();
+    }
+}
+
+
+/* ==================================================
+   MAIN DRAW
+================================================== */
+
+function draw() {
+
+    drawBackground();
+
+    drawAirports();
+
+    drawPaths();
+
+    for (
+        const plane of planes
+    ) {
+
+        drawPlane(plane);
+    }
+
+    drawPlaneWarnings();
+
+    drawParticles();
+
+    drawCrashEffects();
+
+
+    const gradient =
+        ctx.createRadialGradient(
+            W / 2,
+            H / 2,
+            Math.min(W, H) * .2,
+            W / 2,
+            H / 2,
+            Math.max(W, H) * .75
+        );
+
+    gradient.addColorStop(
+        0,
+        "transparent"
+    );
+
+    gradient.addColorStop(
+        1,
+        "rgba(0,0,0,.35)"
+    );
+
+    ctx.fillStyle =
+        gradient;
+
+    ctx.fillRect(
+        0,
+        0,
+        W,
+        H
+    );
+}
+
+
+/* ==================================================
+   GAME LOOP
+================================================== */
+
+let lastTime =
+    performance.now();
+
+function loop(time) {
+
+    const dt =
+        Math.min(
+            (time - lastTime) / 1000,
+            .05
+        );
+
+    lastTime = time;
+
+    update(dt);
+
+    draw();
+
+    requestAnimationFrame(
+        loop
+    );
+}
+
+
+/* ==================================================
+   BUTTONS
+================================================== */
+
+document
+    .getElementById("startButton")
+    .addEventListener(
+        "click",
+        startGame
+    );
+
+document
+    .getElementById("restart")
+    .addEventListener(
+        "click",
+        startGame
+    );
+
+
+/* ==================================================
+   INITIALIZE
+================================================== */
+
+resize();
+
+requestAnimationFrame(
+    loop
+);
+
+</script>
+
+</body>
+</html>
